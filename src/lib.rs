@@ -344,10 +344,10 @@ fn readline_edit<H: Helper>(
     let completer = editor.helper.as_ref().map(|h| h.completer());
     let hinter = editor.helper.as_ref().map(|h| h.hinter() as &Hinter);
 
-    let mut stdout = editor.term.create_writer();
+    let mut output_terminal = editor.term.create_writer();
 
     editor.reset_kill_ring();
-    let mut s = State::new(&mut stdout, prompt, editor.history.len(), hinter);
+    let mut s = State::new(&mut output_terminal, prompt, editor.history.len(), hinter);
     let mut input_state = InputState::new(&editor.config, Rc::clone(&editor.custom_bindings));
 
     s.line.set_delete_listener(editor.kill_ring.clone());

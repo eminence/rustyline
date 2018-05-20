@@ -3,6 +3,8 @@ use std;
 use std::io::{self, Read, Stdout, Write};
 use std::sync;
 use std::sync::atomic;
+use std::ops::Deref;
+use std::os::unix::io::AsRawFd;
 
 use libc;
 use nix;
@@ -21,16 +23,17 @@ use Result;
 
 const STDIN_FILENO: libc::c_int = libc::STDIN_FILENO;
 const STDOUT_FILENO: libc::c_int = libc::STDOUT_FILENO;
+const STDERR_FILENO: libc::c_int = libc::STDERR_FILENO;
 
 /// Unsupported Terminals that don't support RAW mode
 static UNSUPPORTED_TERM: [&'static str; 3] = ["dumb", "cons25", "emacs"];
 
-fn get_win_size() -> (usize, usize) {
+fn get_win_size<T: AsRawFd + ?Sized>(fileno: &T) -> (usize, usize) {
     use std::mem::zeroed;
 
     unsafe {
         let mut size: libc::winsize = zeroed();
-        match libc::ioctl(STDOUT_FILENO, libc::TIOCGWINSZ.into(), &mut size) {
+        match libc::ioctl(fileno.as_raw_fd(), libc::TIOCGWINSZ.into(), &mut size) {
             // .into() for FreeBSD
             0 => (size.ws_col as usize, size.ws_row as usize), // TODO getCursorPosition
             _ => (80, 24),
@@ -333,22 +336,22 @@ impl RawReader for PosixRawReader {
 }
 
 /// Console output writer
-pub struct PosixRenderer {
-    out: Stdout,
+pub struct PosixRenderer<T> {
+    out: T,
     cols: usize, // Number of columns in terminal
 }
 
-impl PosixRenderer {
-    fn new() -> PosixRenderer {
-        let (cols, _) = get_win_size();
+impl<T: io::Write + AsRawFd> PosixRenderer<T> {
+    fn new(term: T) -> PosixRenderer<T> {
+        let (cols, _) = get_win_size(&term);
         PosixRenderer {
-            out: io::stdout(),
+            out: term,
             cols,
         }
     }
 }
 
-impl Renderer for PosixRenderer {
+impl<T: io::Write + AsRawFd> Renderer for PosixRenderer<T> {
     fn move_cursor(&mut self, old: Position, new: Position) -> Result<()> {
         use std::fmt::Write;
         let mut ab = String::new();
@@ -493,7 +496,7 @@ impl Renderer for PosixRenderer {
 
     /// Try to update the number of columns in the current terminal,
     fn update_size(&mut self) {
-        let (cols, _) = get_win_size();
+        let (cols, _) = get_win_size(&self.out);
         self.cols = cols;
     }
 
@@ -503,7 +506,7 @@ impl Renderer for PosixRenderer {
     /// Try to get the number of rows in the current terminal,
     /// or assume 24 if it fails.
     fn get_rows(&self) -> usize {
-        let (_, rows) = get_win_size();
+        let (_, rows) = get_win_size(&self.out);
         rows
     }
 }
@@ -537,7 +540,7 @@ pub struct PosixTerminal {
 
 impl Term for PosixTerminal {
     type Reader = PosixRawReader;
-    type Writer = PosixRenderer;
+    type Writer = PosixRenderer<io::Stderr>;
     type Mode = Mode;
 
     fn new() -> PosixTerminal {
@@ -545,7 +548,7 @@ impl Term for PosixTerminal {
             unsupported: is_unsupported_term(),
             stdin_isatty: is_a_tty(STDIN_FILENO),
         };
-        if !term.unsupported && term.stdin_isatty && is_a_tty(STDOUT_FILENO) {
+        if !term.unsupported && term.stdin_isatty && is_a_tty(STDERR_FILENO) {
             install_sigwinch_handler();
         }
         term
@@ -600,8 +603,8 @@ impl Term for PosixTerminal {
         PosixRawReader::new(config)
     }
 
-    fn create_writer(&self) -> PosixRenderer {
-        PosixRenderer::new()
+    fn create_writer(&self) -> PosixRenderer<io::Stderr> {
+        PosixRenderer::new(io::stderr())
     }
 }
 

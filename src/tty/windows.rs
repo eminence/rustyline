@@ -1,5 +1,5 @@
 //! Windows specific definitions
-use std::io::{self, Stdout, Write};
+use std::io::{self, Stdout, Stderr, Write};
 use std::mem;
 use std::sync::atomic;
 
@@ -17,6 +17,7 @@ use Result;
 
 const STDIN_FILENO: DWORD = winbase::STD_INPUT_HANDLE;
 const STDOUT_FILENO: DWORD = winbase::STD_OUTPUT_HANDLE;
+const STDERR_FILENO: DWORD = winbase::STD_ERROR_HANDLE;
 
 fn get_std_handle(fd: DWORD) -> Result<HANDLE> {
     let handle = unsafe { processenv::GetStdHandle(fd) };
@@ -65,8 +66,8 @@ pub type Mode = ConsoleMode;
 pub struct ConsoleMode {
     original_stdin_mode: DWORD,
     stdin_handle: HANDLE,
-    original_stdout_mode: DWORD,
-    stdout_handle: HANDLE,
+    original_stderr_mode: DWORD,
+    stderr_handle: HANDLE,
 }
 
 impl RawMode for Mode {
@@ -77,8 +78,8 @@ impl RawMode for Mode {
             self.original_stdin_mode,
         ));
         check!(consoleapi::SetConsoleMode(
-            self.stdout_handle,
-            self.original_stdout_mode,
+            self.stderr_handle,
+            self.original_stderr_mode,
         ));
         Ok(())
     }
@@ -225,7 +226,7 @@ impl RawReader for ConsoleRawReader {
 }
 
 pub struct ConsoleRenderer {
-    out: Stdout,
+    out: Stderr,
     handle: HANDLE,
     cols: usize, // Number of columns in terminal
 }
@@ -235,7 +236,7 @@ impl ConsoleRenderer {
         // Multi line editing is enabled by ENABLE_WRAP_AT_EOL_OUTPUT mode
         let (cols, _) = get_win_size(handle);
         ConsoleRenderer {
-            out: io::stdout(),
+            out: io::stderr(),
             handle,
             cols,
         }
@@ -396,7 +397,7 @@ pub type Terminal = Console;
 pub struct Console {
     stdin_isatty: bool,
     stdin_handle: HANDLE,
-    stdout_handle: HANDLE,
+    stderr_handle: HANDLE,
 }
 
 impl Console {}
@@ -417,11 +418,11 @@ impl Term for Console {
             Err(_) => false,
         };
 
-        let stdout_handle = get_std_handle(STDOUT_FILENO).unwrap_or(ptr::null_mut());
+        let stderr_handle = get_std_handle(STDERR_FILENO).unwrap_or(ptr::null_mut());
         Console {
             stdin_isatty,
             stdin_handle: stdin_handle.unwrap_or(ptr::null_mut()),
-            stdout_handle,
+            stderr_handle,
         }
     }
 
@@ -459,19 +460,19 @@ impl Term for Console {
         let raw = raw | wincon::ENABLE_WINDOW_INPUT;
         check!(consoleapi::SetConsoleMode(self.stdin_handle, raw));
 
-        let original_stdout_mode = try!(get_console_mode(self.stdout_handle));
+        let original_stderr_mode = try!(get_console_mode(self.stderr_handle));
         // To enable ANSI colors (Windows 10 only):
         // https://docs.microsoft.com/en-us/windows/console/setconsolemode
-        if original_stdout_mode & wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 {
-            let raw = original_stdout_mode | wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            check!(consoleapi::SetConsoleMode(self.stdout_handle, raw));
+        if original_stderr_mode & wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 {
+            let raw = original_stderr_mode | wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            check!(consoleapi::SetConsoleMode(self.stderr_handle, raw));
         }
 
         Ok(Mode {
             original_stdin_mode,
             stdin_handle: self.stdin_handle,
-            original_stdout_mode,
-            stdout_handle: self.stdout_handle,
+            original_stderr_mode,
+            stderr_handle: self.stderr_handle,
         })
     }
 
@@ -480,6 +481,6 @@ impl Term for Console {
     }
 
     fn create_writer(&self) -> ConsoleRenderer {
-        ConsoleRenderer::new(self.stdout_handle)
+        ConsoleRenderer::new(self.stderr_handle)
     }
 }
