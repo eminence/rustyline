@@ -10,6 +10,7 @@ use consts::KeyPress;
 use error::ReadlineError;
 use line_buffer::LineBuffer;
 use Result;
+use config;
 
 pub type Mode = ();
 
@@ -112,7 +113,7 @@ impl Term for DummyTerminal {
     type Writer = Sink;
     type Mode = Mode;
 
-    fn new() -> DummyTerminal {
+    fn new(stream: config::OutputStreamType) -> DummyTerminal {
         DummyTerminal { keys: Vec::new() }
     }
 

@@ -7,6 +7,7 @@ use rustyline::completion::FilenameCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::hint::Hinter;
 use rustyline::{Cmd, CompletionType, Config, EditMode, Editor, KeyPress};
+use rustyline::config::OutputStreamType;
 
 // On unix platforms you can use ANSI escape sequences
 #[cfg(unix)]
@@ -39,6 +40,7 @@ fn main() {
         .history_ignore_space(true)
         .completion_type(CompletionType::List)
         .edit_mode(EditMode::Emacs)
+        .output_stream(OutputStreamType::Stdout)
         .build();
     let c = FilenameCompleter::new();
     let mut rl = Editor::with_config(config);

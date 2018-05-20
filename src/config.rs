@@ -20,6 +20,8 @@ pub struct Config {
     /// If true, each nonblank line returned by `readline` will be
     /// automatically added to the history.
     auto_add_history: bool,
+    // Whether to use stdout or stderr
+    output_stream: OutputStreamType
 }
 
 impl Config {
@@ -70,6 +72,8 @@ impl Config {
     pub fn auto_add_history(&self) -> bool {
         self.auto_add_history
     }
+
+    pub fn output_stream(&self) -> OutputStreamType { self.output_stream }
 }
 
 impl Default for Config {
@@ -83,6 +87,7 @@ impl Default for Config {
             keyseq_timeout: -1,
             edit_mode: EditMode::Emacs,
             auto_add_history: false,
+            output_stream: OutputStreamType::Stdout
         }
     }
 }
@@ -109,6 +114,13 @@ pub enum CompletionType {
 pub enum EditMode {
     Emacs,
     Vi,
+}
+
+/// Should the editor use stdout or stderr
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputStreamType {
+    Stderr,
+    Stdout,
 }
 
 /// Configuration builder
@@ -190,6 +202,14 @@ impl Builder {
     /// By default, they are not.
     pub fn auto_add_history(mut self, yes: bool) -> Builder {
         self.p.auto_add_history = yes;
+        self
+    }
+
+    /// Whether to use stdout or stderr.
+    ///
+    /// Be default, use stdout
+    pub fn output_stream(mut self, stream: OutputStreamType) -> Builder {
+        self.p.output_stream = stream;
         self
     }
 

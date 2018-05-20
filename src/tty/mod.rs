@@ -120,7 +120,7 @@ pub trait Term {
     type Writer: Renderer; // rl_outstream
     type Mode: RawMode;
 
-    fn new() -> Self;
+    fn new(stream: config::OutputStreamType) -> Self;
     /// Check if current terminal can provide a rich line-editing user
     /// interface.
     fn is_unsupported(&self) -> bool;
@@ -196,3 +196,4 @@ pub use self::unix::*;
 mod test;
 #[cfg(test)]
 pub use self::test::*;
+use config;

@@ -15,11 +15,12 @@ use nix::sys::termios::SetArg;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{truncate, width, Position, RawMode, RawReader, Renderer, Term};
-use config::Config;
+use config::{Config, OutputStreamType};
 use consts::{self, KeyPress};
 use error;
 use line_buffer::LineBuffer;
 use Result;
+use StdStream;
 
 const STDIN_FILENO: libc::c_int = libc::STDIN_FILENO;
 const STDOUT_FILENO: libc::c_int = libc::STDOUT_FILENO;
@@ -336,22 +337,23 @@ impl RawReader for PosixRawReader {
 }
 
 /// Console output writer
-pub struct PosixRenderer<T> {
-    out: T,
+pub struct PosixRenderer {
+    out: StdStream,
     cols: usize, // Number of columns in terminal
 }
 
-impl<T: io::Write + AsRawFd> PosixRenderer<T> {
-    fn new(term: T) -> PosixRenderer<T> {
-        let (cols, _) = get_win_size(&term);
+impl PosixRenderer {
+    fn new(stream_type: OutputStreamType) -> PosixRenderer {
+        let out = StdStream::from_stream_type(stream_type);
+        let (cols, _) = get_win_size(&out);
         PosixRenderer {
-            out: term,
+            out: out,
             cols,
         }
     }
 }
 
-impl<T: io::Write + AsRawFd> Renderer for PosixRenderer<T> {
+impl Renderer for PosixRenderer {
     fn move_cursor(&mut self, old: Position, new: Position) -> Result<()> {
         use std::fmt::Write;
         let mut ab = String::new();
@@ -536,19 +538,21 @@ pub type Terminal = PosixTerminal;
 pub struct PosixTerminal {
     unsupported: bool,
     stdin_isatty: bool,
+    stream_type: OutputStreamType
 }
 
 impl Term for PosixTerminal {
     type Reader = PosixRawReader;
-    type Writer = PosixRenderer<io::Stderr>;
+    type Writer = PosixRenderer;
     type Mode = Mode;
 
-    fn new() -> PosixTerminal {
+    fn new(stream_type: OutputStreamType) -> PosixTerminal {
         let term = PosixTerminal {
             unsupported: is_unsupported_term(),
             stdin_isatty: is_a_tty(STDIN_FILENO),
+            stream_type
         };
-        if !term.unsupported && term.stdin_isatty && is_a_tty(STDERR_FILENO) {
+        if !term.unsupported && term.stdin_isatty && is_a_tty(if stream_type == OutputStreamType::Stdout { STDOUT_FILENO } else { STDERR_FILENO }) {
             install_sigwinch_handler();
         }
         term
@@ -603,8 +607,8 @@ impl Term for PosixTerminal {
         PosixRawReader::new(config)
     }
 
-    fn create_writer(&self) -> PosixRenderer<io::Stderr> {
-        PosixRenderer::new(io::stderr())
+    fn create_writer(&self) -> PosixRenderer {
+        PosixRenderer::new(self.stream_type)
     }
 }
 

@@ -1,5 +1,5 @@
 //! Windows specific definitions
-use std::io::{self, Stdout, Stderr, Write};
+use std::io::{self, Write};
 use std::mem;
 use std::sync::atomic;
 
@@ -14,6 +14,8 @@ use consts::{self, KeyPress};
 use error;
 use line_buffer::LineBuffer;
 use Result;
+use config;
+use StdStream;
 
 const STDIN_FILENO: DWORD = winbase::STD_INPUT_HANDLE;
 const STDOUT_FILENO: DWORD = winbase::STD_OUTPUT_HANDLE;
@@ -27,7 +29,7 @@ fn get_std_handle(fd: DWORD) -> Result<HANDLE> {
         try!(Err(io::Error::new(
             io::ErrorKind::Other,
             "no stdio handle available for this process",
-        ),));
+        ), ));
     }
     Ok(handle)
 }
@@ -66,8 +68,8 @@ pub type Mode = ConsoleMode;
 pub struct ConsoleMode {
     original_stdin_mode: DWORD,
     stdin_handle: HANDLE,
-    original_stderr_mode: DWORD,
-    stderr_handle: HANDLE,
+    original_stdstream_mode: DWORD,
+    stdstream_handle: HANDLE,
 }
 
 impl RawMode for Mode {
@@ -78,8 +80,8 @@ impl RawMode for Mode {
             self.original_stdin_mode,
         ));
         check!(consoleapi::SetConsoleMode(
-            self.stderr_handle,
-            self.original_stderr_mode,
+            self.stdstream_handle,
+            self.original_stdstream_mode,
         ));
         Ok(())
     }
@@ -226,17 +228,17 @@ impl RawReader for ConsoleRawReader {
 }
 
 pub struct ConsoleRenderer {
-    out: Stderr,
+    out: StdStream,
     handle: HANDLE,
     cols: usize, // Number of columns in terminal
 }
 
 impl ConsoleRenderer {
-    fn new(handle: HANDLE) -> ConsoleRenderer {
+    fn new(handle: HANDLE, stream_type: config::OutputStreamType) -> ConsoleRenderer {
         // Multi line editing is enabled by ENABLE_WRAP_AT_EOL_OUTPUT mode
         let (cols, _) = get_win_size(handle);
         ConsoleRenderer {
-            out: io::stderr(),
+            out: StdStream::from_stream_type(stream_type),
             handle,
             cols,
         }
@@ -397,7 +399,8 @@ pub type Terminal = Console;
 pub struct Console {
     stdin_isatty: bool,
     stdin_handle: HANDLE,
-    stderr_handle: HANDLE,
+    stdstream_handle: HANDLE,
+    stream_type: config::OutputStreamType,
 }
 
 impl Console {}
@@ -407,7 +410,7 @@ impl Term for Console {
     type Writer = ConsoleRenderer;
     type Mode = Mode;
 
-    fn new() -> Console {
+    fn new(stream_type: config::OutputStreamType) -> Console {
         use std::ptr;
         let stdin_handle = get_std_handle(STDIN_FILENO);
         let stdin_isatty = match stdin_handle {
@@ -418,11 +421,12 @@ impl Term for Console {
             Err(_) => false,
         };
 
-        let stderr_handle = get_std_handle(STDERR_FILENO).unwrap_or(ptr::null_mut());
+        let stdstream_handle = get_std_handle(if stream_type == config::OutputStreamType::Stdout { STDOUT_FILENO } else { STDERR_FILENO }).unwrap_or(ptr::null_mut());
         Console {
             stdin_isatty,
             stdin_handle: stdin_handle.unwrap_or(ptr::null_mut()),
-            stderr_handle,
+            stdstream_handle,
+            stream_type,
         }
     }
 
@@ -460,19 +464,19 @@ impl Term for Console {
         let raw = raw | wincon::ENABLE_WINDOW_INPUT;
         check!(consoleapi::SetConsoleMode(self.stdin_handle, raw));
 
-        let original_stderr_mode = try!(get_console_mode(self.stderr_handle));
+        let original_stdstream_mode = try!(get_console_mode(self.stdstream_handle));
         // To enable ANSI colors (Windows 10 only):
         // https://docs.microsoft.com/en-us/windows/console/setconsolemode
-        if original_stderr_mode & wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 {
-            let raw = original_stderr_mode | wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            check!(consoleapi::SetConsoleMode(self.stderr_handle, raw));
+        if original_stdstream_mode & wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 {
+            let raw = original_stdstream_mode | wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            check!(consoleapi::SetConsoleMode(self.stdstream_handle, raw));
         }
 
         Ok(Mode {
             original_stdin_mode,
             stdin_handle: self.stdin_handle,
-            original_stderr_mode,
-            stderr_handle: self.stderr_handle,
+            original_stdstream_mode,
+            stdstream_handle: self.stdstream_handle,
         })
     }
 
@@ -481,6 +485,6 @@ impl Term for Console {
     }
 
     fn create_writer(&self) -> ConsoleRenderer {
-        ConsoleRenderer::new(self.stderr_handle)
+        ConsoleRenderer::new(self.stdstream_handle, self.stream_type)
     }
 }
