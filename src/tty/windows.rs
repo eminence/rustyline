@@ -469,7 +469,8 @@ impl Term for Console {
         // https://docs.microsoft.com/en-us/windows/console/setconsolemode
         if original_stdstream_mode & wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING == 0 {
             let raw = original_stdstream_mode | wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            check!(consoleapi::SetConsoleMode(self.stdstream_handle, raw));
+            // this won't be supported on all versions of windows, so let it silently fail
+            unsafe { consoleapi::SetConsoleMode(self.stdstream_handle, raw); }
         }
 
         Ok(Mode {
